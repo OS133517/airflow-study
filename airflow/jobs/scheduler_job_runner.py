@@ -88,6 +88,12 @@ DM = DagModel
 
 
 @dataclass
+"""
+자바의 dto? 비슷한 역할을 하는 클래스에 붙여주는 데코레이터
+__init__(), __repr__(), __eq__() 와 같은 메소드들을 자동으로 생성해준다.
+__repr__() : 자바에서 toString()과 비슷한 듯. 클래스를 출력할 경우 안의 필드들을 출력해준다.
+__eq__() : 두 개의 인스턴스의 동등성을 체크하기 위한 메소드 안의 필드값으로 비교하고 논리값 리턴해준다.
+"""
 class ConcurrencyMap:
     """
     Dataclass to represent concurrency maps.
@@ -102,7 +108,25 @@ class ConcurrencyMap:
     task_dagrun_concurrency_map: dict[tuple[str, str, str], int]
 
     @classmethod
+    """
+    주석 : 해당 메서드가 클래스 메서드임을 표시한다.
+    클래스 메서드는 정적 메서드와 비슷한데, 객체 인스턴스를 의미하는 self 대신 cls 라는 클래스를 의미하는
+    파라미터를 전달받는다. 정적 메서드는 이러한 cls 파라미터를 전달받지 않는다. 클래스 메서드는 이렇게 전달받은 
+    cls 파라미터를 통해 클래스 변수에 액세스할 수 있다.
+    일반적으로 인스턴스 데이터를 액세스할 필요가 없는 경우 클래스 메서드나 정적 메서드를 사용하는데,
+    이 때 보통 클래스 변수를 액세스할 필요가 있을 때는 클래스 메서드를, 이를 액세스할 필요가 없을 때는 정적 메서드를
+    사용한다.
+    """
     def from_concurrency_map(cls, mapping: dict[tuple[str, str, str], int]) -> ConcurrencyMap:
+
+        """ 
+        주석 : cls에는 필드에 변수 세개가 있고 이를 @dataclass로 롬복처럼 자동으로 생성자도 만들어지기 때문에
+        아마 그래서 Counter 3개로 생성자에 넣는? 느낌으로 이렇게 만든 것 같다.
+        Counter는 파이썬의 기본 자료구조인 사전(dict)를 확장하고 있기 때문에 이렇게 가능한 듯
+
+        밑에서 이 함수 실행할 때 준 매개변수
+        {(dag_id, run_id, task_id): count for task_id, run_id, dag_id, count in ti_concurrency_query}
+        """
         instance = cls(Counter(), Counter(), Counter(mapping))
         for (d, r, t), c in mapping.items():
             instance.dag_active_tasks_map[d] += c
@@ -150,7 +174,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         self,
         job: Job,
         subdir: str = settings.DAGS_FOLDER,
-        num_runs: int = conf.getint("scheduler", "num_runs"),
+        num_runs: int = conf.getint("scheduler", "num_runs"), # 주석: 이것도 기본 -1 되어있어서 무한으로 돌게 되어있다.
         num_times_parse_dags: int = -1,
         scheduler_idle_sleep_time: float = conf.getfloat("scheduler", "scheduler_idle_sleep_time"),
         do_pickle: bool = False,
@@ -164,7 +188,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         # number of times. This is only to support testing, and isn't something a user is likely to want to
         # configure -- they'll want num_runs
         self.num_times_parse_dags = num_times_parse_dags
-        if processor_poll_interval:
+        if processor_poll_interval:# 주석: deprecated된 기능을 사용하는 경우 체크한담에 새거에다 넣어주는 구나
             # TODO: Remove in Airflow 3.0
             warnings.warn(
                 "The 'processor_poll_interval' parameter is deprecated. "
@@ -213,28 +237,39 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         task_queued_timeout = conf.getfloat("scheduler", "task_queued_timeout")
         self._task_queued_timeout = max(
             stalled_task_timeout, task_adoption_timeout, worker_pods_pending_timeout, task_queued_timeout
-        )
+        )# 이것도 deprecated 된 설정들을 계속 쓰고있는 경우를 위해 이렇게 따로 넣어주는건가보다.
 
-        self.do_pickle = do_pickle
+        self.do_pickle = do_pickle# 주석: do_pickle값이 bool인거보니까 아마도 picke기능을 쓸지말지 변수에다 저장하는 듯
 
         if log:
             self._log = log
 
         # Check what SQL backend we use
-        sql_conn: str = conf.get_mandatory_value("database", "sql_alchemy_conn").lower()
-        self.using_sqlite = sql_conn.startswith("sqlite")
+        sql_conn: str = conf.get_mandatory_value("database", "sql_alchemy_conn").lower()# 주석: database섹션의 sql_alchemy_conn값을 소문자로 가져오는 듯
+        # 주석: configuration.py 파일을 보니 get_mandatory_value함수는 매개변수 두개를 받는데 앞에거가 section이고 뒤가 key다
+
+        self.using_sqlite = sql_conn.startswith("sqlite")# 주석: 아마 기본 sqlite를 사용할 때를 위해 만들어둔 변수인 듯
         # Dag Processor agent - not used in Dag Processor standalone mode.
-        self.processor_agent: DagFileProcessorAgent | None = None
+        self.processor_agent: DagFileProcessorAgent | None = None# 주석 : 왜 아무것도 안넣어주지 밑에서 만들어서 넣어주나
 
         self.dagbag = DagBag(dag_folder=self.subdir, read_dags_from_db=True, load_op_links=False)
-        self._paused_dag_without_running_dagruns: set = set()
+        # 주석 : DagBag 인스턴스 만들어서 변수 초기화하는 것
 
-    @provide_session
+        self._paused_dag_without_running_dagruns: set = set()# 주석 : 그냥 빈 set만들어서 넣어두네
+
+    @provide_session# 주석 : session이 있으면 재사용하고 그렇지 않을 경우 새로 생성해줌
     def heartbeat_callback(self, session: Session = NEW_SESSION) -> None:
-        Stats.incr("scheduler_heartbeat", 1, 1)
+        Stats.incr("scheduler_heartbeat", 1, 1)# 주석 : statslogger인 듯
 
     def register_signals(self) -> None:
         """Register signals that stop child processes."""
+        """ 
+            주석 : python의 signal.signal() 라이브러리를 사용함. 특정 신호가 오면 특정 함수를 실행
+            signal.signal(signal.SIGINT, handler) -> SIGINT 신호가 발생했을 때는 기본 동작을 무시하고
+            handler() 함수를 실행하도록 설정하는 것. handler 함수의 signum은 발생한 신호의 숫자 값이며
+            frame은 프로그램을 실행한 스택 프레임이다.(프레임 : 메모리에서 함수와 함수에 속한 변수가 저장되는 독립공간)
+            시그널 참고 : https://tech.buzzvil.com/blog/asyncio-no-3-sigterm/
+        """
         signal.signal(signal.SIGINT, self._exit_gracefully)
         signal.signal(signal.SIGTERM, self._exit_gracefully)
         signal.signal(signal.SIGUSR2, self._debug_dump)
@@ -271,6 +306,8 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
         :param states: List of states to query for
         :return: Concurrency map
+
+        ti -> task instance
         """
         ti_concurrency_query: Result = session.execute(
             select(TI.task_id, TI.run_id, TI.dag_id, func.count("*"))
@@ -328,11 +365,14 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             self.log.debug("All pools are full!")
             return []
 
-        max_tis = min(max_tis, pool_slots_free)
+        # 주석 : 오호 이렇게 더 낮은걸로 해서 따로 계산할 필요 없이 최대 ti 만들 수 있는걸 계산하네
+        max_tis = min(max_tis, pool_slots_free) 
 
         starved_pools = {pool_name for pool_name, stats in pools.items() if stats["open"] <= 0}
 
         # dag_id to # of running tasks and (dag_id, task_id) to # of running tasks.
+        # 주석 : 아까 위에서 __get_concurrency_maps 함수 보니까 
+        # 위 (dag_id)랑 (dag_id, task_id) 이렇게 묶인 것의 count를 증가시킨 값의 dict를 return 함
         concurrency_map = self.__get_concurrency_maps(states=EXECUTION_STATES, session=session)
 
         # Number of tasks that cannot be scheduled because of no open slot in pool
