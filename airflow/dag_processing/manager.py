@@ -143,6 +143,8 @@ class DagFileProcessorAgent(LoggingMixin, MultiprocessingStartMethodMixin):
     def start(self) -> None:
         """Launch DagFileProcessorManager processor and start DAG parsing loop in manager."""
         context = self._get_multiprocessing_context()
+
+        # 주석 : time.monotonic() 단조시간(운영체제나 cpu등과 같은 하드웨어에서 계산하는 시간) 얻는 함수
         self._last_parsing_stat_received_at = time.monotonic()
 
         self._parent_signal_conn, child_signal_conn = context.Pipe()

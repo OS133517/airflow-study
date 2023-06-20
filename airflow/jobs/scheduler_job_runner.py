@@ -168,7 +168,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
     """
 
     job_type = "SchedulerJob"
-    heartrate: int = conf.getint("scheduler", "SCHEDULER_HEARTBEAT_SEC")
+    heartrate: int = conf.getint("scheduler", "SCHEDULER_HEARTBEAT_SEC")# 주석 : 얼마나 자주 스케쥴러가 작동해야되는지. 이를 통해 계속 task들을 트리거한다.
 
     def __init__(
         self,
@@ -342,11 +342,17 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             # Optimization: to avoid littering the DB errors of "ERROR: canceling statement due to lock
             # timeout", try to take out a transactional advisory lock (unlocks automatically on
             # COMMIT/ROLLBACK)
+            """
+            주석 :  Postgresql pg_advisory_xact_lock 함수는 입력인수로 지정한 키에 해당되는 row에 
+            트랜잭션 레벨의 배타(exclusive) Advisory Lock을 건다. 함수 사용시 출력되는 결과값은 없다. 
+            이 함수 대신 pg_try_advisory_xact_lock을 사용하면 
+            결과값으로 성공시 'true', 실패시 'false'를 반환 받을 수 있다.
+            """
             lock_acquired = session.execute(
                 text("SELECT pg_try_advisory_xact_lock(:id)").bindparams(
                     id=DBLocks.SCHEDULER_CRITICAL_SECTION.value
                 )
-            ).scalar()
+            ).scalar()# 주석 : scalar() 는 SQLAlchemy에서 하나값을 갖고오는 함수
             if not lock_acquired:
                 # Throw an error like the one that would happen with NOWAIT
                 raise OperationalError(
@@ -367,7 +373,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
         # 주석 : 오호 이렇게 더 낮은걸로 해서 따로 계산할 필요 없이 최대 ti 만들 수 있는걸 계산하네
         max_tis = min(max_tis, pool_slots_free) 
-
+        # 주석 : 아마도 starved니까 할 task가 없는 pool을 찾는 의도인 것 같다.
         starved_pools = {pool_name for pool_name, stats in pools.items() if stats["open"] <= 0}
 
         # dag_id to # of running tasks and (dag_id, task_id) to # of running tasks.
@@ -385,6 +391,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
         pool_num_starving_tasks: dict[str, int] = Counter()
 
+        # 주석 : 이렇게 itertools.count()를 써서 for 문을 돌리면 무한으로 카운트세면서 도는 듯
         for loop_count in itertools.count(start=1):
             num_starved_pools = len(starved_pools)
             num_starved_dags = len(starved_dags)
