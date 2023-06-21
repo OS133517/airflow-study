@@ -171,6 +171,11 @@ class Pool(Base):
         for (pool_name, total_slots) in pool_rows:
             if total_slots == -1:
                 total_slots = float("inf")  # type: ignore
+                # PoolStats(
+                # total: int
+                # running: int
+                # queued: int
+                # open: int)
             pools[pool_name] = PoolStats(total=total_slots, running=0, queued=0, open=0)
 
         state_count_by_pool = (

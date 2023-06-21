@@ -71,5 +71,6 @@ if TYPE_CHECKING:
     Stats: StatsLogger
 else:
 
+    # metaclass는 클래스를 만들어주는 클래스 맞는 stats 객체를 만들기위해? _Stats를 넣어서 만들어주는 듯?
     class Stats(metaclass=_Stats):
         """Empty class for Stats - we use metaclass to inject the right one."""

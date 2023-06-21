@@ -85,6 +85,7 @@ class LocalWorkerBase(Process, LoggingMixin):
 
         self.log.info("%s running %s", self.__class__.__name__, command)
         setproctitle(f"airflow worker -- LocalExecutor: {command}")
+        # 새 process에서 할지 부모 process에서 할지 설정값
         if settings.EXECUTE_TASKS_NEW_PYTHON_INTERPRETER:
             state = self._execute_work_in_subprocess(command)
         else:

@@ -86,14 +86,13 @@ TI = TaskInstance
 DR = DagRun
 DM = DagModel
 
-
+"""
+ 자바의 dto? 비슷한 역할을 하는 클래스에 붙여주는 데코레이터
+ __init__(), __repr__(), __eq__() 와 같은 메소드들을 자동으로 생성해준다.
+ __repr__() : 자바에서 toString()과 비슷한 듯. 클래스를 출력할 경우 안의 필드들을 출력해준다.
+ __eq__() : 두 개의 인스턴스의 동등성을 체크하기 위한 메소드 안의 필드값으로 비교하고 논리값 리턴해준다.
+ """
 @dataclass
-"""
-자바의 dto? 비슷한 역할을 하는 클래스에 붙여주는 데코레이터
-__init__(), __repr__(), __eq__() 와 같은 메소드들을 자동으로 생성해준다.
-__repr__() : 자바에서 toString()과 비슷한 듯. 클래스를 출력할 경우 안의 필드들을 출력해준다.
-__eq__() : 두 개의 인스턴스의 동등성을 체크하기 위한 메소드 안의 필드값으로 비교하고 논리값 리턴해준다.
-"""
 class ConcurrencyMap:
     """
     Dataclass to represent concurrency maps.
@@ -103,31 +102,35 @@ class ConcurrencyMap:
     to # of task instances in the given state list in each DAG run.
     """
 
-    dag_active_tasks_map: dict[str, int]
+    dag_active_tasks_map: dict[str, int]#
     task_concurrency_map: dict[tuple[str, str], int]
     task_dagrun_concurrency_map: dict[tuple[str, str, str], int]
 
-    @classmethod
     """
     주석 : 해당 메서드가 클래스 메서드임을 표시한다.
     클래스 메서드는 정적 메서드와 비슷한데, 객체 인스턴스를 의미하는 self 대신 cls 라는 클래스를 의미하는
-    파라미터를 전달받는다. 정적 메서드는 이러한 cls 파라미터를 전달받지 않는다. 클래스 메서드는 이렇게 전달받은 
+    파라미터를 전달받는다. 정적 메서드는 이러한 cls 파라미터를 전달받지 않는다. 클래스 메서드는 이렇게 전달받은
     cls 파라미터를 통해 클래스 변수에 액세스할 수 있다.
     일반적으로 인스턴스 데이터를 액세스할 필요가 없는 경우 클래스 메서드나 정적 메서드를 사용하는데,
     이 때 보통 클래스 변수를 액세스할 필요가 있을 때는 클래스 메서드를, 이를 액세스할 필요가 없을 때는 정적 메서드를
     사용한다.
     """
+    @classmethod
     def from_concurrency_map(cls, mapping: dict[tuple[str, str, str], int]) -> ConcurrencyMap:
 
-        """ 
+        """
         주석 : cls에는 필드에 변수 세개가 있고 이를 @dataclass로 롬복처럼 자동으로 생성자도 만들어지기 때문에
         아마 그래서 Counter 3개로 생성자에 넣는? 느낌으로 이렇게 만든 것 같다.
+        -> 이게 아니라 @classmethod를 붙였기 때문에 필드 변수에 접근하기 위해 self대신 클래스를 의미하는 cls를 받는 거인 듯
         Counter는 파이썬의 기본 자료구조인 사전(dict)를 확장하고 있기 때문에 이렇게 가능한 듯
 
         밑에서 이 함수 실행할 때 준 매개변수
         {(dag_id, run_id, task_id): count for task_id, run_id, dag_id, count in ti_concurrency_query}
         """
         instance = cls(Counter(), Counter(), Counter(mapping))
+        # 주석 : d -> dag, r -> run, t -> task
+        # 이렇게 해서 concurrency_map의 dag_active_tasks_map에는 {dag_id:count}, task_concurrency_map에는 {(dag_id, task_id):count} 이렇게 넣어준다.
+        # 그러고나서 concurrency_map을 반환하네
         for (d, r, t), c in mapping.items():
             instance.dag_active_tasks_map[d] += c
             instance.task_concurrency_map[(d, t)] += c
@@ -146,6 +149,11 @@ def _is_parent_process() -> bool:
 
 class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
     """
+    SchedulerJobRunner는 특정 시간 간격 동안 실행되며 실행 준비가 된 작업을 예약합니다.
+
+    이러한 작업에서는 각 작업의 최신 실행 상태를 확인하고 다음 예약에 대한 종속성이 충족되는지 확인합니다.
+    만약 그렇다면, 적절한 TaskInstance를 생성하고 실행자에게 실행 명령을 보냅니다. 이를 각 DAG의 각 작업에 대해 수행하고 반복합니다.
+
     SchedulerJobRunner runs for a specific time interval and schedules jobs that are ready to run.
 
     It figures out the latest runs for each task and sees if the dependencies
@@ -167,15 +175,23 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
     :param log: override the default Logger
     """
 
+    # 주석 : base_job_runner를 상속받아서 쓰는 거라 아마 그래서 이렇게 job type을 지정해주는 것 같다.
     job_type = "SchedulerJob"
-    heartrate: int = conf.getint("scheduler", "SCHEDULER_HEARTBEAT_SEC")# 주석 : 얼마나 자주 스케쥴러가 작동해야되는지. 이를 통해 계속 task들을 트리거한다.
+    # 주석 : 얼마나 자주 스케쥴러가 작동해야되는지. 이를 통해 계속 task들을 트리거한다.
+    heartrate: int = conf.getint("scheduler", "SCHEDULER_HEARTBEAT_SEC")
 
     def __init__(
         self,
         job: Job,
         subdir: str = settings.DAGS_FOLDER,
-        num_runs: int = conf.getint("scheduler", "num_runs"), # 주석: 이것도 기본 -1 되어있어서 무한으로 돌게 되어있다.
+
+        # 주석: 각각의 dag file을 몇번 스케쥴 하려하는 지에 대해 설정하는 숫자
+        # 이것도 기본 -1 되어있어서 무한으로 돌게 되어있다.
+        num_runs: int = conf.getint("scheduler", "num_runs"),
         num_times_parse_dags: int = -1,
+
+        # 주석 : 스케쥴러 루프에 할 것이 아무것도 없을 때 몇초 동안 잠들지
+        # 만약 할 것이 있다면 다음 루프 iteration을 바로 시작한다.
         scheduler_idle_sleep_time: float = conf.getfloat("scheduler", "scheduler_idle_sleep_time"),
         do_pickle: bool = False,
         log: logging.Logger | None = None,
@@ -184,6 +200,8 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         super().__init__(job)
         self.subdir = subdir
         self.num_runs = num_runs
+        # 이거는 테스트용으로 dag 파싱을 몇번하고 멈출지
+        # 평소에는 계속해야될테니 순전히 개발할 때 테스트용인 듯
         # In specific tests, we want to stop the parse loop after the _files_ have been parsed a certain
         # number of times. This is only to support testing, and isn't something a user is likely to want to
         # configure -- they'll want num_runs
@@ -199,7 +217,10 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             scheduler_idle_sleep_time = processor_poll_interval
         self._scheduler_idle_sleep_time = scheduler_idle_sleep_time
         # How many seconds do we wait for tasks to heartbeat before mark them as zombies.
+        # 로컬 task jobs들은 주기적으로 DB에 heartbeat를 쏘는데 몇초 동안 쏘지 않으면 좀비로 표시할지 설정한 값
+        # 기본은 300초로 되어있으며 좀비로 표시되면 관련 task instance를 실패로 표시하고 다시 re-schedule한다.
         self._zombie_threshold_secs = conf.getint("scheduler", "scheduler_zombie_task_threshold")
+        # dag processor가 혼자 작동하는 프로세서인지 아니면 스케쥴러잡의 subprocess인지 기본은 false
         self._standalone_dag_processor = conf.getboolean("scheduler", "standalone_dag_processor")
         self._dag_stale_not_seen_duration = conf.getint("scheduler", "dag_stale_not_seen_duration")
 
@@ -235,40 +256,49 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
                 DeprecationWarning,
             )
         task_queued_timeout = conf.getfloat("scheduler", "task_queued_timeout")
+        # max는 그냥 평범한 max함수 맞네. 매개변수로 들어온 값들 중에 제일 큰 것 리턴함
+        # task가 재시도나 실패로 되기 전에 queued state에서 얼마나 오랫동안 있을 수 있는지
         self._task_queued_timeout = max(
             stalled_task_timeout, task_adoption_timeout, worker_pods_pending_timeout, task_queued_timeout
         )# 이것도 deprecated 된 설정들을 계속 쓰고있는 경우를 위해 이렇게 따로 넣어주는건가보다.
 
-        self.do_pickle = do_pickle# 주석: do_pickle값이 bool인거보니까 아마도 picke기능을 쓸지말지 변수에다 저장하는 듯
+        self.do_pickle = do_pickle# 주석: do_pickle값이 bool인거보니까 아마도 pickle기능을 쓸지말지 변수에다 저장하는 듯
 
         if log:
             self._log = log
 
         # Check what SQL backend we use
-        sql_conn: str = conf.get_mandatory_value("database", "sql_alchemy_conn").lower()# 주석: database섹션의 sql_alchemy_conn값을 소문자로 가져오는 듯
-        # 주석: configuration.py 파일을 보니 get_mandatory_value함수는 매개변수 두개를 받는데 앞에거가 section이고 뒤가 key다
+        # database섹션의 sql_alchemy_conn값을 소문자로 가져오는 듯
+        # configuration.py 파일을 보니 get_mandatory_value함수는 매개변수 두개를 받는데 앞에거가 section이고 뒤가 key다
+        sql_conn: str = conf.get_mandatory_value("database", "sql_alchemy_conn").lower()
 
-        self.using_sqlite = sql_conn.startswith("sqlite")# 주석: 아마 기본 sqlite를 사용할 때를 위해 만들어둔 변수인 듯
+        # 아마 기본 sqlite를 사용할 때를 위해 만들어둔 변수인 듯
+        self.using_sqlite = sql_conn.startswith("sqlite")
         # Dag Processor agent - not used in Dag Processor standalone mode.
-        self.processor_agent: DagFileProcessorAgent | None = None# 주석 : 왜 아무것도 안넣어주지 밑에서 만들어서 넣어주나
-
+        # 아 여기서 이렇게 미리 선언해두고 좀 이따 실행시켜서 파싱 시작하나보다.
+        # 왜 아무것도 안넣어주지 밑에서 만들어서 넣어주나
+        self.processor_agent: DagFileProcessorAgent | None = None
+        # DagBag 인스턴스 만들어서 변수 초기화하는 것
         self.dagbag = DagBag(dag_folder=self.subdir, read_dags_from_db=True, load_op_links=False)
-        # 주석 : DagBag 인스턴스 만들어서 변수 초기화하는 것
 
         self._paused_dag_without_running_dagruns: set = set()# 주석 : 그냥 빈 set만들어서 넣어두네
 
     @provide_session# 주석 : session이 있으면 재사용하고 그렇지 않을 경우 새로 생성해줌
     def heartbeat_callback(self, session: Session = NEW_SESSION) -> None:
-        Stats.incr("scheduler_heartbeat", 1, 1)# 주석 : statslogger인 듯
+        # statslogger인 듯
+        # incr(stat, count, rate)
+        Stats.incr("scheduler_heartbeat", 1, 1)
 
     def register_signals(self) -> None:
         """Register signals that stop child processes."""
-        """ 
-            주석 : python의 signal.signal() 라이브러리를 사용함. 특정 신호가 오면 특정 함수를 실행
-            signal.signal(signal.SIGINT, handler) -> SIGINT 신호가 발생했을 때는 기본 동작을 무시하고
-            handler() 함수를 실행하도록 설정하는 것. handler 함수의 signum은 발생한 신호의 숫자 값이며
-            frame은 프로그램을 실행한 스택 프레임이다.(프레임 : 메모리에서 함수와 함수에 속한 변수가 저장되는 독립공간)
-            시그널 참고 : https://tech.buzzvil.com/blog/asyncio-no-3-sigterm/
+        """
+        python의 signal.signal() 라이브러리를 사용함. 특정 신호가 오면 특정 함수를 실행
+
+        signal.signal(signal.SIGINT, handler) -> SIGINT 신호가 발생했을 때는 기본 동작을 무시하고
+
+        handler() 함수를 실행하도록 설정하는 것. handler 함수의 signum은 발생한 신호의 숫자 값이며
+        frame은 프로그램을 실행한 스택 프레임이다.(프레임 : 메모리에서 함수와 함수에 속한 변수가 저장되는 독립공간)
+        시그널 참고 : https://tech.buzzvil.com/blog/asyncio-no-3-sigterm/
         """
         signal.signal(signal.SIGINT, self._exit_gracefully)
         signal.signal(signal.SIGTERM, self._exit_gracefully)
@@ -281,6 +311,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             return
 
         self.log.info("Exiting gracefully upon receiving signal %s", signum)
+        # 여기서 processor_agent는 dagFileProcessorAgent
         if self.processor_agent:
             self.processor_agent.end()
         sys.exit(os.EX_OK)
@@ -309,7 +340,9 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
         ti -> task instance
         """
+        # 이게 파이썬에서 SQLAlchemy 쓰는 방법인 것 같다. 이렇게 데이터베이스에서 데이터 가져오는 듯?
         ti_concurrency_query: Result = session.execute(
+            # task id, run id, dag id, 카운트 이렇게 가져오네
             select(TI.task_id, TI.run_id, TI.dag_id, func.count("*"))
             .where(TI.state.in_(states))
             .group_by(TI.task_id, TI.run_id, TI.dag_id)
@@ -320,17 +353,18 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
     def _executable_task_instances_to_queued(self, max_tis: int, session: Session) -> list[TI]:
         """
+        조건에 따라서 실행 준비가 된 task instance를 찾는다.
         Find TIs that are ready for execution based on conditions.
 
-        Conditions include:
-        - pool limits
-        - DAG max_active_tasks
-        - executor state
-        - priority
-        - max active tis per DAG
-        - max active tis per DAG run
+        Conditions include 조건들 :
+        - pool limits(pool 제한)
+        - DAG max_active_tasks(DAG 최대 task 수)
+        - executor state(executor 상태)
+        - priority(우선순위, 이건 operator로 task정의할 때 값 지정 가능)
+        - max active tis per DAG(DAG마다 최대 활성화 task instance)
+        - max active tis per DAG run(DAG run마다 최대 활성화 task instance)
 
-        :param max_tis: Maximum number of TIs to queue in this loop.
+        :param max_tis: Maximum number of TIs to queue in this loop(이번 루프에서 queue할 수 있는 최대 task instance 숫자)
         :return: list[airflow.models.TaskInstance]
         """
         from airflow.models.pool import Pool
@@ -343,10 +377,12 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             # timeout", try to take out a transactional advisory lock (unlocks automatically on
             # COMMIT/ROLLBACK)
             """
-            주석 :  Postgresql pg_advisory_xact_lock 함수는 입력인수로 지정한 키에 해당되는 row에 
-            트랜잭션 레벨의 배타(exclusive) Advisory Lock을 건다. 함수 사용시 출력되는 결과값은 없다. 
-            이 함수 대신 pg_try_advisory_xact_lock을 사용하면 
+            주석 :  Postgresql pg_advisory_xact_lock 함수는 입력인수로 지정한 키에 해당되는 row에
+            트랜잭션 레벨의 배타(exclusive) Advisory Lock을 건다. 함수 사용시 출력되는 결과값은 없다.
+            이 함수 대신 pg_try_advisory_xact_lock을 사용하면
             결과값으로 성공시 'true', 실패시 'false'를 반환 받을 수 있다.
+
+            advisory lock이란 동기화? 무결성? 이런 것 때문에 얻는 것 같다.
             """
             lock_acquired = session.execute(
                 text("SELECT pg_try_advisory_xact_lock(:id)").bindparams(
@@ -371,27 +407,29 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             self.log.debug("All pools are full!")
             return []
 
-        # 주석 : 오호 이렇게 더 낮은걸로 해서 따로 계산할 필요 없이 최대 ti 만들 수 있는걸 계산하네
-        max_tis = min(max_tis, pool_slots_free) 
-        # 주석 : 아마도 starved니까 할 task가 없는 pool을 찾는 의도인 것 같다.
+        # 오호 이렇게 더 낮은걸로 해서 따로 계산할 필요 없이 최대 ti 만들 수 있는걸 계산하네
+        max_tis = min(max_tis, pool_slots_free)
+        # 왜 open이 0이하 인 거가 starved_pools 지???
+        # 아마도 starved니까 다 돌아가고 있어서 resource가 없으니까 starved 인 듯 이게 맞는거같다.
         starved_pools = {pool_name for pool_name, stats in pools.items() if stats["open"] <= 0}
 
         # dag_id to # of running tasks and (dag_id, task_id) to # of running tasks.
-        # 주석 : 아까 위에서 __get_concurrency_maps 함수 보니까 
+        # 주석 : 아까 위에서 __get_concurrency_maps 함수 보니까
         # 위 (dag_id)랑 (dag_id, task_id) 이렇게 묶인 것의 count를 증가시킨 값의 dict를 return 함
+        # EXECUTION_STATES -> State.RUNNING, State.QUEUED 이니까 작동하거나 큐에 올라가져 있는 상태의 것들의 concurrency_map을 가져온다.
         concurrency_map = self.__get_concurrency_maps(states=EXECUTION_STATES, session=session)
 
-        # Number of tasks that cannot be scheduled because of no open slot in pool
+        # 풀에 사용가능한 슬롯이 없어서 스케쥴되지 못한 task들의 수 미리 0으로 초기화 Number of tasks that cannot be scheduled because of no open slot in pool
         num_starving_tasks_total = 0
 
-        # dag and task ids that can't be queued because of concurrency limits
+        # 병렬제한?때문에 큐되지 못한 dag와 task 아이디들 초기화 dag and task ids that can't be queued because of concurrency limits
         starved_dags: set[str] = set()
         starved_tasks: set[tuple[str, str]] = set()
         starved_tasks_task_dagrun_concurrency: set[tuple[str, str, str]] = set()
 
         pool_num_starving_tasks: dict[str, int] = Counter()
 
-        # 주석 : 이렇게 itertools.count()를 써서 for 문을 돌리면 무한으로 카운트세면서 도는 듯
+        # 주석 : 이렇게 itertools.count()를 써서 for 문을 돌리면 1부터 시작해서 무한으로 카운트세면서 도는 듯
         for loop_count in itertools.count(start=1):
             num_starved_pools = len(starved_pools)
             num_starved_dags = len(starved_dags)
@@ -730,6 +768,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         # Report execution
         for ti_key, value in event_buffer.items():
             state: str
+            # value에 state이랑 다른 값들이 있나봄. 비구조할당이라 생각하면 될 듯. 근데 여기서 _(언더바)는 state빼고 나머지는 그냥 뭉탱이로 치고 무시한다는 의미
             state, _ = value
             # We create map (dag_id, task_id, execution_date) -> in-memory try_number
             ti_primary_key_to_try_number_map[ti_key.primary] = ti_key.try_number
