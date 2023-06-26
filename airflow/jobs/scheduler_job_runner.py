@@ -441,13 +441,16 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             # and the dag is not paused
             query = (
                 select(TI)
+                # 여기서 이렇게 ti_state 인덱스를 쓰라고 힌트를 줄 수 있군
                 .with_hint(TI, "USE INDEX (ti_state)", dialect_name="mysql")
                 .join(TI.dag_run)
+                # 여기서 이렇게 dag run으로 검색해서 running인 dag들의 task instance들을 만드는거구나
                 .where(DR.run_type != DagRunType.BACKFILL_JOB, DR.state == DagRunState.RUNNING)
                 .join(TI.dag_model)
                 .where(not_(DM.is_paused))
                 .where(TI.state == TaskInstanceState.SCHEDULED)
                 .options(selectinload(TI.dag_model))
+                # 앞에 -이렇게 마이너스를 주면 desc 구나
                 .order_by(-TI.priority_weight, DR.execution_date, TI.map_index)
             )
 
@@ -887,6 +890,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
         self.log.info("Starting the scheduler")
 
+        # 여기서 executor를 가져오는 거구나
         executor_class, _ = ExecutorLoader.import_default_executor_cls()
 
         # DAGs can be pickled for easier remote execution by some executors
@@ -932,6 +936,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
             execute_start_time = timezone.utcnow()
 
+            # 스케쥴러 루프 작동
             self._run_scheduler_loop()
 
             if self.processor_agent:
@@ -1068,6 +1073,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
                 with create_session() as session:
                     num_queued_tis = self._do_scheduling(session)
 
+                    # hearbeat를 executor에 쏴서 일 시키는 듯
                     self.job.executor.heartbeat()
                     session.expunge_all()
                     num_finished_events = self._process_executor_events(session=session)
@@ -1140,8 +1146,10 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         # Put a check in place to make sure we don't commit unexpectedly
         with prohibit_commit(session) as guard:
             if settings.USE_JOB_SCHEDULE:
+                # 여기서 대그런 생성
                 self._create_dagruns_for_dags(guard, session)
 
+            # 대그런 큐 시작
             self._start_queued_dagruns(session)
             guard.commit()
             dag_runs = self._get_next_dagruns_to_examine(DagRunState.RUNNING, session)

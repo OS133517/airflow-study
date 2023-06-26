@@ -362,6 +362,7 @@ class AirflowKubernetesScheduler(LoggingMixin):
 
         dag_id, task_id, run_id, try_number, map_index = key
 
+        # 아 이래서 에어플로우 익스큐터가 받는 명령어는 airflow tasks run으로 시작한다한거구나 그래서 이걸로 검사하는거네
         if command[0:3] != ["airflow", "tasks", "run"]:
             raise ValueError('The command must start with ["airflow", "tasks", "run"].')
 
