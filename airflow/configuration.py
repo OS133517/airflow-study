@@ -763,6 +763,7 @@ class AirflowConfigParser(ConfigParser):
         val = str(self.get(section, key, _extra_stacklevel=1, **kwargs)).lower().strip()
         if "#" in val:
             val = val.split("#")[0].strip()
+        # 오 이렇게 t 나 1로 줘도 true로 f 나 0을 줘도 false로 인식하게 해뒀구나. 참 똑똑해..
         if val in ("t", "true", "1"):
             return True
         elif val in ("f", "false", "0"):

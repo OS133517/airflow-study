@@ -64,6 +64,9 @@ def provide_session(func: Callable[PS, RT]) -> Callable[PS, RT]:
     If you want to reuse a session or run the function as part of a
     database transaction, you pass it to the function, if not this wrapper
     will create one and close it for you.
+    "session"이 제공되지 않을 경우 세션을 제공하는 함수 데코레이터입니다.
+    세션을 재사용하거나 함수를 데이터베이스 트랜잭션의 일부로 실행하려면 
+    세션을 함수에 전달하면 되지만, 전달하지 않으면 이 래퍼가 세션을 생성하고 닫아줍니다.
     """
     session_args_idx = find_session_idx(func)
 

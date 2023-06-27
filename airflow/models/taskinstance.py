@@ -724,6 +724,7 @@ class TaskInstance(Base, LoggingMixin):
         :return: shell command that can be used to run the task instance
         """
         cmd = ["airflow", "tasks", "run", dag_id, task_id, run_id]
+        # 주석 : 이렇게 선택적인 파람들은 if로 체크해서 넣어주는구나
         if mark_success:
             cmd.extend(["--mark-success"])
         if pickle_id:
@@ -758,6 +759,7 @@ class TaskInstance(Base, LoggingMixin):
     def log_url(self) -> str:
         """Log URL for TaskInstance."""
         iso = quote(self.execution_date.isoformat())
+        # 주석 : webserver의 default url. 기본은 로컬호스트 8080포트로 되어있다.
         base_url = conf.get_mandatory_value("webserver", "BASE_URL")
         return (
             f"{base_url}/log"

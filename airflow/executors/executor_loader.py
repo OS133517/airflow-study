@@ -126,6 +126,7 @@ class ExecutorLoader:
         """
 
         def _import_and_validate(path: str) -> type[BaseExecutor]:
+            # 여기서 executor와 데이터베이스 호환되는지 확인하는 구나. 주로 SQLite 때문에 하는 듯?
             executor = import_string(path)
             cls.validate_database_executor_compatibility(executor)
             return executor
@@ -162,6 +163,7 @@ class ExecutorLoader:
     @functools.lru_cache(maxsize=None)
     def validate_database_executor_compatibility(cls, executor: type[BaseExecutor]) -> None:
         """Validate database and executor compatibility.
+        데이터베이스와 익스큐터 호환성 검사
 
         Most of the databases work universally, but SQLite can only work with
         single-threaded executors (e.g. Sequential).
