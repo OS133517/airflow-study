@@ -3537,7 +3537,13 @@ class DagModel(Base):
         from airflow.models.dataset import DagScheduleDatasetReference, DatasetDagRunQueue as DDRQ
 
         # these dag ids are triggered by datasets, and they are ready to go.
+        # Dag 마다 가장 마지막에 큐된 시간이랑 처음 큐된 시간을 찾는 쿼리인데 왜 그런거지?
+        # having(func.count() == func.sum(case((DDRQ.target_dag_id.is_not(None), 1), else_=0)))
+        # 이 부분으로 뭔가 filter해서 하는 것 같은데 이 두개가 같으면 queued 되야 하는데 안되서 그런가?
+        # 아 맞는거 같다. dagScheduleDataset인 거 보니까
+        # 위의 having 절에서 이미 queue됬던 것들만 있을 테니까 숫자가 같아서 그런가 보다...?
         dataset_triggered_dag_info = {
+            # 이 부분 뭔가 했는데 쿼리의 결과를 이런 형태로 받겠다 지정하는 거구나
             x.dag_id: (x.first_queued_time, x.last_queued_time)
             for x in session.query(
                 DagScheduleDatasetReference.dag_id,
@@ -3553,6 +3559,7 @@ class DagModel(Base):
         if dataset_triggered_dag_ids:
             exclusion_list = {
                 x.dag_id
+                # 이미 queued나 running인 상태의 dag run은 제외
                 for x in (
                     session.query(DagModel.dag_id)
                     .join(DagRun.dag_model)
@@ -3571,6 +3578,7 @@ class DagModel(Base):
 
         # We limit so that _one_ scheduler doesn't try to do all the creation of dag runs
         query = (
+            # 이건 dataset_triggered 된 dag들 말고 스케쥴되어야하는 dag들 뽑는 쿼리인 듯
             session.query(cls)
             .filter(
                 cls.is_paused == expression.false(),

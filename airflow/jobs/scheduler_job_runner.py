@@ -272,9 +272,10 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         # configuration.py 파일을 보니 get_mandatory_value함수는 매개변수 두개를 받는데 앞에거가 section이고 뒤가 key다
         sql_conn: str = conf.get_mandatory_value("database", "sql_alchemy_conn").lower()
 
-        # 아마 기본 sqlite를 사용할 때를 위해 만들어둔 변수인 듯
+        # 기본 sqlite를 사용하는지 체크하려고 만들어둔 변수
         self.using_sqlite = sql_conn.startswith("sqlite")
         # Dag Processor agent - not used in Dag Processor standalone mode.
+        # -> Dag Processor standalone mode를 사용하면 스케쥴러 내에서 하는 게 아니라 새로운 프로세스에서 파싱하는 모드인 듯
         # 아 여기서 이렇게 미리 선언해두고 좀 이따 실행시켜서 파싱 시작하나보다.
         # 왜 아무것도 안넣어주지 밑에서 만들어서 넣어주나
         self.processor_agent: DagFileProcessorAgent | None = None
@@ -483,6 +484,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
                     session=session,
                     **skip_locked(session=session),
                 )
+                # 아 여기서 쿼리 쏘는 군..
                 task_instances_to_examine: list[TI] = session.scalars(query).all()
 
                 timer.stop(send=True)
@@ -894,27 +896,32 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         executor_class, _ = ExecutorLoader.import_default_executor_cls()
 
         # DAGs can be pickled for easier remote execution by some executors
+        # pickle : 파이썬 객체 자체를 바이너리로 저장하는 것. 훨씬 빠르다함
+        # 이 기능을 사용하는지 체크하는 변수인 것 같다.
         pickle_dags = self.do_pickle and executor_class.supports_pickling
 
+        # -1로 설정되있는 것 보니까 이것도 default가 무한인 듯
         self.log.info("Processing each file at most %s times", self.num_times_parse_dags)
 
         # When using sqlite, we do not use async_mode
         # so the scheduler job and DAG parser don't access the DB at the same time.
+        # SQLite를 사용한다면 한번에 하나밖에 수행하지 못하기 때문에 이를 체크하기 위한 변수
         async_mode = not self.using_sqlite
 
         processor_timeout_seconds: int = conf.getint("core", "dag_file_processor_timeout")
         processor_timeout = timedelta(seconds=processor_timeout_seconds)
         if not self._standalone_dag_processor:
-            self.processor_agent = DagFileProcessorAgent(
-                dag_directory=Path(self.subdir),
-                max_runs=self.num_times_parse_dags,
-                processor_timeout=processor_timeout,
+            self.processor_agent = DagFileProcessorAgent(# 아래 값들을 주면서 대그 파일 프로세서 에이전트 생성
+                dag_directory=Path(self.subdir),# 대그 폴더 경로
+                max_runs=self.num_times_parse_dags,# 몇번까지 대그들 파싱하는 지로 설정했는지
+                processor_timeout=processor_timeout,# 설정 파일에서 대그 파일 프로세싱 몇초로 설정해뒀는지
                 dag_ids=[],
-                pickle_dags=pickle_dags,
-                async_mode=async_mode,
+                pickle_dags=pickle_dags,# dag 피클 기능 사용하는지
+                async_mode=async_mode,# sqlite를 db로 사용하고 있는지
             )
 
         try:
+            # 처음 스케쥴러가 작동되면 스케쥴러 잡으로 db에 들어가고 executor에 같은 job_id를 넣어주는 것 같다.
             self.job.executor.job_id = self.job.id
             if self.processor_agent:
                 self.log.debug("Using PipeCallbackSink as callback sink.")
@@ -927,18 +934,24 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
                 self.log.debug("Using DatabaseCallbackSink as callback sink.")
                 self.job.executor.callback_sink = DatabaseCallbackSink()
 
+            # 이렇게 executor 시작하는 군
             self.job.executor.start()
 
             self.register_signals()
 
             if self.processor_agent:
+                # 이렇게 dagProcessorAgent도 시작하는구나 - 근데 이거 py파일 이름이 매니저인거 보니까 agent 자체가 dagProcessorManager인건가??
                 self.processor_agent.start()
 
+            # 그냥 이렇게 시작 시간 저장해두는건가? 맞는 것 같다.
             execute_start_time = timezone.utcnow()
 
             # 스케쥴러 루프 작동
             self._run_scheduler_loop()
 
+            # 스케쥴러 루프가 끝나면 작동하는 부분 시작
+            # 이런 프로그램들은 어떻게 계속 작동하고 있나 했는데 이런 식으로 그냥 루프돌리면 되는거구나..
+            # 어차피 루프도는 동안에는 그 다음 코드 라인들은 작동하지 않을테니까 오 이거 괜찮다.
             if self.processor_agent:
                 # Stop any processors
                 self.processor_agent.terminate()
@@ -1021,8 +1034,10 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         timers = EventScheduler()
 
         # Check on start up, then every configured interval
+        # 이전에 스케쥴러가 작동했을 때 큐 또는 스케쥴된 상태에서 끝난 task들 리셋(처음 시작할 때와 설정된 주기로 작동)
         self.adopt_or_reset_orphaned_tasks()
 
+        # 아 이 call_regular_interval로 상태 관리 등등 여러가지를 주기적으로 하는 거구나
         timers.call_regular_interval(
             conf.getfloat("scheduler", "orphaned_tasks_check_interval", fallback=300.0),
             self.adopt_or_reset_orphaned_tasks,
@@ -1061,8 +1076,11 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
                 self._cleanup_stale_dags,
             )
 
+        # itertools.count(start=1) 보니까 파이썬에서 반복하기 좋은 방법으로 start 1로 주면 1부터 시작해서
+        # 기본적으로 1씩 증가하면서 반복한다. 그러면서 아마 몇번째 루프인지 체크하려고 loop_count를 준 것 같다.
         for loop_count in itertools.count(start=1):
             with Stats.timer("scheduler.scheduler_loop_duration") as timer:
+                # sqlite를 사용하는 경우 다중 접속이 불가능해서 이렇게 따로 관리해주는 구나
                 if self.using_sqlite and self.processor_agent:
                     self.processor_agent.run_single_parsing_loop()
                     # For the sqlite case w/ 1 thread, wait until the processor
@@ -1071,6 +1089,9 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
                     self.processor_agent.wait_until_finished()
 
                 with create_session() as session:
+                    # do_scheduling에서 dag run과 task instance 생성 등 스케쥴링 관련 작업하는 듯
+                    # 이 때 각각 dag run과 task instance를 실시간으로 db에 업데이트 해줘야하기 때문에
+                    # session을 생성해서 넘겨주는 것 같다.
                     num_queued_tis = self._do_scheduling(session)
 
                     # hearbeat를 executor에 쏴서 일 시키는 듯
@@ -1145,17 +1166,20 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         """
         # Put a check in place to make sure we don't commit unexpectedly
         with prohibit_commit(session) as guard:
+            # 세팅에서 기본으로 true되 있는데 이걸 false로 하면 스케쥴러가 스케쥴링을 하지 않는 것 같다.
+            # 아마 dag run 생성에만 if가 달린 건 이걸 토대로 task instance를 생성하기 때문인 듯
             if settings.USE_JOB_SCHEDULE:
-                # 여기서 대그런 생성
+                # 여기서 대그런 생성, 생성할 때 state는 queued
                 self._create_dagruns_for_dags(guard, session)
 
-            # 대그런 큐 시작
+            # 생성한 queued 상태의 대그런들 running 상태로 변경할지
             self._start_queued_dagruns(session)
             guard.commit()
             dag_runs = self._get_next_dagruns_to_examine(DagRunState.RUNNING, session)
             # Bulk fetch the currently active dag runs for the dags we are
             # examining, rather than making one query per DagRun
 
+            # 모든 대그런들 스케쥴하기
             callback_tuples = self._schedule_all_dag_runs(guard, dag_runs, session)
 
         # Send the callbacks after we commit to ensure the context is up to date when it gets run
@@ -1180,6 +1204,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
 
             if self.job.executor.slots_available <= 0:
                 # We know we can't do anything here, so don't even try!
+                # executor에 슬롯 없으면 그냥 넘어감
                 self.log.debug("Executor full, skipping critical section")
                 num_queued_tis = 0
             else:
@@ -1215,12 +1240,18 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
     @retry_db_transaction
     def _create_dagruns_for_dags(self, guard: CommitProhibitorGuard, session: Session) -> None:
         """Find Dag Models needing DagRuns and Create Dag Runs with retries in case of OperationalError."""
+        # dags_needing_dagruns 이걸 통해 dataset_trggiered_dag들과 그냥 스케쥴되어야하는 dag들을 뽑는 쿼리를 갖고온 듯
         query, dataset_triggered_dag_info = DagModel.dags_needing_dagruns(session)
+        # 그래서 위에서 뽑아온 쿼리로 대그 갖고온다.
         all_dags_needing_dag_runs = set(query.all())
         dataset_triggered_dags = [
+            # 리스트로 넣어주네
             dag for dag in all_dags_needing_dag_runs if dag.dag_id in dataset_triggered_dag_info
         ]
+        # 이렇게 또 나누네 왜 나누는거지 도대체
         non_dataset_dags = all_dags_needing_dag_runs.difference(dataset_triggered_dags)
+        # dag run 생성할 때도 굳이 이렇게 그냥과 dataset triggered로 나눠서 하는 이유가 뭐지
+        # 암튼 이렇게 둘다 생성
         self._create_dag_runs(non_dataset_dags, session)
         if dataset_triggered_dags:
             self._create_dag_runs_dataset_triggered(
@@ -1240,6 +1271,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
         # as DagModel.dag_id and DagModel.next_dagrun
         # This list is used to verify if the DagRun already exist so that we don't attempt to create
         # duplicate dag runs
+        # 이미 존재하는 dag run인지 체크하는 과정
         existing_dagruns = (
             session.execute(
                 select(DagRun.dag_id, DagRun.execution_date).where(
@@ -1253,6 +1285,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
             .all()
         )
 
+        # 대그들 실행중인 카운트 키 밸류로 구하기
         active_runs_of_dags = Counter(
             DagRun.active_runs_of_dags(dag_ids=(dm.dag_id for dm in dag_models), session=session),
         )
@@ -1278,6 +1311,7 @@ class SchedulerJobRunner(BaseJobRunner[Job], LoggingMixin):
                 dag.create_dagrun(
                     run_type=DagRunType.SCHEDULED,
                     execution_date=dag_model.next_dagrun,
+                    # 아 여기서 대그런을 생성할 때 queued로 생성하는 구나
                     state=DagRunState.QUEUED,
                     data_interval=data_interval,
                     external_trigger=False,
