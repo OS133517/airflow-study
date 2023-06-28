@@ -9,18 +9,21 @@ default_args = {
     "start_date" : datetime(2023, 1, 1)
 }
 
-myExecutor = conf.get_mandatory_value("core", "EXECUTOR")
+# 현재 예제에서 사용하고 있는 변수들은 모두 기본으로 내장되어있는 변수들이며 직접 정의해서 사용할 수도 있다.
+my_macro_var = {"myExecutor" : conf.get_mandatory_value("core", "EXECUTOR")}
 
 practiceDag = DAG(
     dag_id="practiceDag3",
     schedule_interval="@once",
     default_args=default_args,
     tags=["another_practice"],
-    catchup=False
+    catchup=False,
+    # 직접 변수를 정의해서 사용할 경우 dag에 이렇게 넣어줘야함
+    user_defined_macros=my_macro_var
 )
 
-# Airflow의 경우 jinja2 template을 내장하고 있기 때문에 이렇게 동적으로 생성할 수 도 있다.
-# 현재 예제에서 사용하고 있는 변수들은 모두 기본으로 내장되어있는 변수들이며 직접 정의해두고 사용할 수도 있다.
+# Airflow의 경우 jinja2 template을 내장하고 있기 때문에 이렇게 동적으로 생성할 수 있다.
+
 task5 = BashOperator(
     dag=practiceDag,
     bash_command="echo 'this belongs to dag({{dag.dag_id}})'",
@@ -35,7 +38,8 @@ task6 = BashOperator(
 
 task7 = BashOperator(
     dag=practiceDag,
-    bash_command="echo 'my executor is '" + myExecutor,
+    # dag 설정에서 user_defined_macro를 넣어줬다면 이렇게 키로 꺼내쓸 수 있다.
+    bash_command="echo 'my executor is {{myExecutor}}'",
     task_id="task7"
 )
 
