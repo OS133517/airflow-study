@@ -144,7 +144,7 @@ class BashOperator(BaseOperator):
         output_encoding: str = "utf-8",
         skip_exit_code: int | None = None,
         skip_on_exit_code: int | Container[int] | None = 99,
-        cwd: str | None = None,
+        cwd: str | None = None,# 배시 커맨드를 사용할 디렉토리
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)

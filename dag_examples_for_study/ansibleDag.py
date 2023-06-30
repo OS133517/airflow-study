@@ -14,7 +14,7 @@ def get_file_path(conn_id):
 
 default_args={
         "start_date":datetime(2023, 1, 1)
-        }
+}
 
 test_dag=DAG(
         dag_id="test_dag",
@@ -23,7 +23,7 @@ test_dag=DAG(
         # 태그를 설정할 땐 이렇게 꼭 리스트 형태로 줘야한다. 여러개를 줄 수도 있고 문자열로 줄 경우 한 글자씩 생긴다.
         tags=["test"],
         catchup=False
-        )
+)
 
 @task(dag=test_dag)
 def inventory_path():
@@ -42,16 +42,24 @@ def ip_address(**context):
 add_host=BashOperator(
         task_id="add_host",
         bash_command="""
-        echo {{ti.xcom_pull(task_ids="ip_address")}} >> {{ti.xcom_pull(task_ids="inventory_path")}}
+        echo {{task_instance.xcom_pull(task_ids="ip_address")}} >> {{ti.xcom_pull(task_ids="inventory_path")}}
         """,
         dag=test_dag
-        )
+)
+
+# 또는 이렇게 env에서 꺼내 쓸 수도 있다.
+print_host=BashOperator(
+        task_id="print_host",
+        bash_command="echo \"this is ip received from web server: '$ip'\"",
+        env={"ip":'{{dag_run.conf["ip"] if dag_run else ""}}'},
+        dag=test_dag
+)
 
 ping_hosts=BashOperator(
         task_id="ping_hosts",
         bash_command="ansible -m ping all",
         dag=test_dag
-        )
+)
 
 # task 데코레이터를 쓸 경우 함수명이 task_id가 되며 task들 간의 관계를 정의할 때 함수명() 이렇게 하면 된다.
-inventory_path() >> ip_address() >> add_host >> ping_hosts
+inventory_path() >> ip_address() >> [print_host, add_host] >> ping_hosts
