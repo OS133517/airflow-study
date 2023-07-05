@@ -25,7 +25,7 @@ ansible_test_dag=DAG(
         schedule_interval="@once",
         default_args=default_args,
         # 태그를 설정할 땐 이렇게 꼭 리스트 형태로 줘야한다. 여러개를 줄 수도 있고 리스트로 주지 않고 문자열로 줄 경우 한 글자씩 태그가 생긴다.
-        tags=["test"],
+        tags=["ansible"],
         catchup=False
 )
 
