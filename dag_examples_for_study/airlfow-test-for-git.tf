@@ -59,3 +59,8 @@ resource "aws_security_group_rule" "websg_outbound" {
   security_group_id = aws_security_group.webserversg.id
   description       = "outbound"
 }
+
+output "public_ip" {
+  value       = aws_instance.test.public_ip
+  description = "The public IP of the Instance"
+}
